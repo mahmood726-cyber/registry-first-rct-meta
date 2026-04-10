@@ -1,0 +1,25 @@
+# Generated/cache data — never commit
+cache/
+data/cochrane_501/
+
+# Pipeline outputs (all variants, including smoke tests and versioned runs)
+outputs/
+outputs_v*/
+outputs_smoke*/
+outputs_key_smoke*/
+
+# Python build artifacts and bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+build/
+dist/
+
+# Vendored system packages (use pip/uv/requirements instead)
+*.deb
+
+# Common
+.env
+*.log
+.DS_Store

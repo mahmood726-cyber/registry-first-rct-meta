@@ -1,0 +1,14 @@
+review_id: hfpef_sglt2
+review_title: HFpEF and SGLT2 inhibitors
+condition_terms:
+  - heart failure
+  - preserved ejection fraction
+  - hfpef
+intervention_terms:
+  - sglt2
+  - empagliflozin
+  - dapagliflozin
+include_filters:
+  population: adults
+  after_year: 2010
+exclude_filters: {}

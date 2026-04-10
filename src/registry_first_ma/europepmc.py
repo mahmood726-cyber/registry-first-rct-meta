@@ -1,0 +1,34 @@
+"""Europe PMC helper for OA metadata/full-text endpoints."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from .config import EUROPEPMC_BASE
+from .http import CachedHttpClient
+
+
+class EuropePMCClient:
+    """Europe PMC search and OA full-text lookup client."""
+
+    def __init__(self, http: CachedHttpClient) -> None:
+        self.http = http
+
+    def search(self, query: str, page_size: int = 25) -> list[dict[str, Any]]:
+        url = f"{EUROPEPMC_BASE}/search"
+        payload = self.http.get_json(
+            url,
+            params={"query": query, "format": "json", "pageSize": str(page_size)},
+            namespace="europepmc_search",
+        )
+        result_list = payload.get("resultList", {}).get("result", []) if isinstance(payload, dict) else []
+        return [item for item in result_list if isinstance(item, dict)]
+
+    def full_text_xml(self, pmcid: str) -> str | None:
+        if not pmcid:
+            return None
+        url = f"{EUROPEPMC_BASE}/{pmcid}/fullTextXML"
+        try:
+            return self.http.get_text(url, namespace="europepmc_fulltext")
+        except Exception:
+            return None
