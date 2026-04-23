@@ -6,6 +6,7 @@ import logging
 import re
 import socket
 from dataclasses import asdict
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -13,6 +14,7 @@ from tqdm import tqdm
 
 from .aact import AACTDatabaseClient
 from .ctgov import ClinicalTrialsGovClient
+from .config import resolve_default_pdf_extractor_root
 from .europepmc import EuropePMCClient
 from .gaps import build_gap_report
 from .http import CachedHttpClient
@@ -20,6 +22,7 @@ from .meta import meta_analyze_binary, meta_analyze_effect_measure_rows, mnar_se
 from .models import IncludedStudy, OutcomeRow, ReviewRecord, ReviewRunResult, TrialUniverseRecord
 from .normalize import dedupe_list, normalize_identifier_set, keyword_terms
 from .openalex import OpenAlexClient
+from .publication_pdf import extract_publication_effect_rows
 from .pubmed import PubMedClient
 from .transparency import build_transparency_profile
 from .unpaywall import UnpaywallClient
@@ -41,6 +44,9 @@ class RegistryFirstEngine:
         use_aact_fallback: bool = True,
         aact_env_file: str | None = None,
         ncbi_api_key: str | None = None,
+        augment_unmatched_pdfs: bool = False,
+        pdf_extractor_root: str | None = None,
+        max_publication_pdfs_per_trial: int = 1,
     ) -> None:
         self.http = CachedHttpClient(cache_dir=cache_dir)
         self.ctgov = ClinicalTrialsGovClient(self.http)
@@ -54,6 +60,21 @@ class RegistryFirstEngine:
         self.use_unpaywall = use_unpaywall
         self.use_europepmc = use_europepmc
         self.use_aact_fallback = use_aact_fallback
+        self.augment_unmatched_pdfs = augment_unmatched_pdfs
+        self.pdf_extractor_root = pdf_extractor_root or resolve_default_pdf_extractor_root()
+        if self.augment_unmatched_pdfs and not (self.use_unpaywall or self.use_europepmc):
+            LOGGER.info(
+                "augment_unmatched_pdfs requested without OA discovery backend; enabling Europe PMC lookup."
+            )
+            self.use_europepmc = True
+        if self.augment_unmatched_pdfs and (
+            not self.pdf_extractor_root or not Path(self.pdf_extractor_root).exists()
+        ):
+            LOGGER.warning(
+                "augment_unmatched_pdfs requested but pdf_extractor_root is unavailable; disabling PDF augmentation."
+            )
+            self.augment_unmatched_pdfs = False
+        self.max_publication_pdfs_per_trial = max(1, int(max_publication_pdfs_per_trial))
         self._ctgov_available: bool | None = None
 
     def _check_ctgov_available(self) -> bool:
@@ -141,12 +162,88 @@ class RegistryFirstEngine:
             for pmid in trial_links.get("pmids", []):
                 try:
                     results = self.europepmc.search(f"EXT_ID:{pmid} AND SRC:MED")
-                    if any(str(r.get("isOpenAccess", "")).upper() == "Y" for r in results):
+                    if any(
+                        str(r.get("isOpenAccess", "")).upper() == "Y" or self.europepmc.best_pdf_url(r)
+                        for r in results
+                    ):
                         available.add(pmid)
                 except Exception:
                     continue
 
         return available
+
+    def _oa_pdf_urls(self, trial_links: dict[str, list[str]]) -> list[str]:
+        urls: list[str] = []
+
+        if self.use_unpaywall:
+            for doi in trial_links.get("dois", []):
+                try:
+                    payload = self.unpaywall.lookup_doi(doi)
+                    url = self.unpaywall.best_oa_url(payload)
+                    if url:
+                        urls.append(url)
+                except Exception:
+                    continue
+
+        if self.use_europepmc:
+            for pmid in trial_links.get("pmids", []):
+                try:
+                    results = self.europepmc.search(f"EXT_ID:{pmid} AND SRC:MED")
+                    for result in results:
+                        url = self.europepmc.best_pdf_url(result)
+                        if url:
+                            urls.append(url)
+                except Exception:
+                    continue
+
+        return dedupe_list(urls)
+
+    @staticmethod
+    def _trial_has_usable_signal(rows: list[OutcomeRow]) -> bool:
+        for row in rows:
+            if not row.matched_main_outcome:
+                continue
+            if row.events is not None and row.total is not None:
+                return True
+            if (
+                row.effect_estimate is not None
+                and row.effect_ci_low is not None
+                and row.effect_ci_high is not None
+                and str(row.effect_metric or "").upper() in {"HR", "OR", "RR"}
+            ):
+                return True
+        return False
+
+    def _augment_trial_with_publication_pdf(
+        self,
+        *,
+        review_id: str,
+        trial: TrialUniverseRecord,
+        main_outcome_name: str,
+        trial_links: dict[str, list[str]],
+    ) -> list[OutcomeRow]:
+        if not self.augment_unmatched_pdfs or not self.pdf_extractor_root:
+            return []
+        if not main_outcome_name or main_outcome_name == "unspecified_outcome":
+            return []
+
+        pdf_urls = self._oa_pdf_urls(trial_links)
+        for pdf_url in pdf_urls[: self.max_publication_pdfs_per_trial]:
+            try:
+                rows = extract_publication_effect_rows(
+                    review_id=review_id,
+                    trial_id=trial.trial_id,
+                    main_outcome_name=main_outcome_name,
+                    pdf_url=pdf_url,
+                    cache_dir=self.http.cache.root,
+                    extractor_root=self.pdf_extractor_root,
+                )
+            except Exception as exc:
+                LOGGER.warning("Publication PDF augmentation failed for %s via %s: %s", trial.trial_id, pdf_url, exc)
+                continue
+            if rows:
+                return rows
+        return []
 
     def run_review(
         self,
@@ -256,6 +353,7 @@ class RegistryFirstEngine:
                 main_meta = self.ctgov.choose_main_outcome(trial.raw)
             main_outcome_by_trial[trial.trial_id] = main_meta
 
+            trial_rows: list[OutcomeRow] = []
             if trial.has_results:
                 if data_source == "aact":
                     main_rows = self.aact.extract_binary_outcome_rows(
@@ -272,9 +370,9 @@ class RegistryFirstEngine:
                         main_outcome_name=main_meta["outcome_name"],
                         main_outcome_timepoint=main_meta.get("timepoint"),
                     )
-                results_rows.extend(main_rows)
+                trial_rows.extend(main_rows)
                 if data_source == "aact":
-                    results_rows.extend(
+                    trial_rows.extend(
                         self.aact.extract_hr_rows(
                             trial.raw,
                             review_id=review.review_id,
@@ -283,7 +381,7 @@ class RegistryFirstEngine:
                         )
                     )
                 else:
-                    results_rows.extend(
+                    trial_rows.extend(
                         self.ctgov.extract_hr_rows(
                             trial.raw,
                             review_id=review.review_id,
@@ -294,7 +392,7 @@ class RegistryFirstEngine:
                     )
                 if not main_outcome_only:
                     if data_source == "aact":
-                        results_rows.extend(
+                        trial_rows.extend(
                             self.aact.extract_ae_rows(
                                 trial.raw,
                                 review_id=review.review_id,
@@ -302,13 +400,24 @@ class RegistryFirstEngine:
                             )
                         )
                     else:
-                        results_rows.extend(
+                        trial_rows.extend(
                             self.ctgov.extract_ae_rows(
                                 trial.raw,
                                 review_id=review.review_id,
                                 trial_id=trial.trial_id,
                             )
                         )
+
+            if not self._trial_has_usable_signal(trial_rows):
+                trial_rows.extend(
+                    self._augment_trial_with_publication_pdf(
+                        review_id=review.review_id,
+                        trial=trial,
+                        main_outcome_name=main_meta["outcome_name"],
+                        trial_links=links,
+                    )
+                )
+            results_rows.extend(trial_rows)
 
         results_df = pd.DataFrame([asdict(r) for r in results_rows])
         if results_df.empty:
@@ -338,10 +447,18 @@ class RegistryFirstEngine:
             & (results_df["events"].notna())
             & (results_df["total"].notna())
         ]
-        contributing_trial_ids = set(binary_main["trial_id"].unique())
+        direct_main = results_df[
+            (results_df["matched_main_outcome"].fillna(False))
+            & (results_df["effect_metric"].fillna("").astype(str).str.upper().isin({"HR", "OR", "RR"}))
+            & (results_df["effect_estimate"].notna())
+            & (results_df["effect_ci_low"].notna())
+            & (results_df["effect_ci_high"].notna())
+        ]
+        contributing_trial_ids = set(binary_main["trial_id"].unique()) | set(direct_main["trial_id"].unique())
 
         meta_observed = meta_analyze_binary(binary_main, measure=measure)
-        hr_observed = meta_analyze_effect_measure_rows(results_df, effect_metric="HR")
+        direct_observed = meta_analyze_effect_measure_rows(direct_main, effect_metric=measure.upper())
+        hr_observed = meta_analyze_effect_measure_rows(direct_main, effect_metric="HR")
         completed_trials = [t for t in trial_universe if (t.overall_status or "").upper() == "COMPLETED"]
         n_missing_completed = max(0, len(completed_trials) - len(contributing_trial_ids))
 
@@ -354,6 +471,7 @@ class RegistryFirstEngine:
 
         meta_pack = {
             "observed": meta_observed,
+            "observed_direct": direct_observed,
             "observed_hr": hr_observed,
             "mnar": sensitivity,
             "n_missing_completed_trials": n_missing_completed,

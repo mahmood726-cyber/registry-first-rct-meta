@@ -14,6 +14,7 @@ import pandas as pd
 if str(Path(__file__).resolve().parents[1] / "src") not in sys.path:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from registry_first_ma.config import resolve_default_pdf_extractor_root
 from registry_first_ma.engine import RegistryFirstEngine
 from registry_first_ma.io import ensure_runtime_dirs, load_topic_config
 
@@ -23,13 +24,19 @@ def str_to_bool(value: str) -> bool:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    default_pdf_extractor_root = resolve_default_pdf_extractor_root()
     parser = argparse.ArgumentParser(description="Run registry-first RCT-only meta-analysis for a topic config.")
     parser.add_argument("--config", type=str, required=True, help="Path to topic YAML/JSON config.")
     parser.add_argument("--out_dir", type=str, default="outputs", help="Output directory.")
     parser.add_argument("--cache_dir", type=str, default="cache", help="Deterministic HTTP cache directory.")
     parser.add_argument("--main_outcome_only", type=str_to_bool, default=True, help="If true, only main outcome extraction is executed.")
     parser.add_argument("--cap_ncts", type=int, default=500, help="Max CT.gov records to keep for trial universe.")
-    parser.add_argument("--cap_seed_pmids", type=int, default=20, help="Max PubMed seed PMIDs per trial for linkage.")
+    parser.add_argument(
+        "--cap_seed_pmids",
+        type=int,
+        default=20,
+        help="Max PubMed seed PMIDs per trial for linkage. Use 0 for fully offline registry-only linkage.",
+    )
     parser.add_argument("--grace_months", type=int, default=24, help="Grace period in months for transparency metrics.")
     parser.add_argument("--rct_filter_toggle", type=str_to_bool, default=True, help="Require interventional/randomized filters.")
     parser.add_argument("--use_openalex", type=str_to_bool, default=True, help="Enable OpenAlex mapping.")
@@ -38,6 +45,24 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--use_aact_fallback", type=str_to_bool, default=True, help="Enable AACT PostgreSQL fallback if CT.gov API is unavailable.")
     parser.add_argument("--aact_env_file", type=str, default=None, help="Optional path to .env containing AACT_USER/AACT_PASSWORD.")
     parser.add_argument("--ncbi_api_key", type=str, default=None, help="Optional NCBI E-utilities API key to reduce PubMed throttling.")
+    parser.add_argument(
+        "--augment_unmatched_pdfs",
+        type=str_to_bool,
+        default=False,
+        help="Augment unmatched trials with verified RR/OR/HR extracted from OA PDFs when available.",
+    )
+    parser.add_argument(
+        "--pdf_extractor_root",
+        type=str,
+        default=default_pdf_extractor_root,
+        help=f"Local rct-extractor-v2 root. Default: {default_pdf_extractor_root or 'none found'}",
+    )
+    parser.add_argument(
+        "--max_publication_pdfs_per_trial",
+        type=int,
+        default=1,
+        help="Maximum OA PDFs to try per trial when publication augmentation is enabled.",
+    )
     parser.add_argument("--measure", choices=["RR", "OR"], default="RR", help="Binary effect measure for pooling.")
     return parser
 
@@ -61,6 +86,9 @@ def main() -> None:
         use_aact_fallback=args.use_aact_fallback,
         aact_env_file=args.aact_env_file,
         ncbi_api_key=args.ncbi_api_key,
+        augment_unmatched_pdfs=args.augment_unmatched_pdfs,
+        pdf_extractor_root=args.pdf_extractor_root,
+        max_publication_pdfs_per_trial=args.max_publication_pdfs_per_trial,
     )
 
     run = engine.run_topic(

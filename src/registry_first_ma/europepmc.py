@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from urllib.parse import urljoin
 from typing import Any
 
 from .config import EUROPEPMC_BASE
@@ -32,3 +33,23 @@ class EuropePMCClient:
             return self.http.get_text(url, namespace="europepmc_fulltext")
         except Exception:
             return None
+
+    @staticmethod
+    def best_pdf_url(result: dict[str, Any] | None) -> str | None:
+        if not result:
+            return None
+        if isinstance(result.get("fullTextUrlList"), dict):
+            full_text_urls = result["fullTextUrlList"].get("fullTextUrl", [])
+            if isinstance(full_text_urls, dict):
+                full_text_urls = [full_text_urls]
+            for item in full_text_urls:
+                if not isinstance(item, dict):
+                    continue
+                url = item.get("url")
+                if isinstance(url, str) and ".pdf" in url.lower():
+                    return url
+        pmcid = result.get("pmcid")
+        has_pdf = str(result.get("hasPDF") or "").upper() == "Y"
+        if has_pdf and pmcid:
+            return urljoin("https://europepmc.org/articles/", f"{pmcid}?pdf=render")
+        return None
