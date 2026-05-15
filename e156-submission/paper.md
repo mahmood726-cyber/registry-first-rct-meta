@@ -1,6 +1,6 @@
 Mahmood Ahmad
 Tahir Heart Institute
-author@example.com
+mahmood.ahmad2@nhs.net
 
 Registry-First Meta-Analysis: Quantifying Missing Cardiovascular Trial Evidence
 
