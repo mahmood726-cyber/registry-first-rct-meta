@@ -21,6 +21,12 @@ dist/
 # Vendored system packages (use pip/uv/requirements instead)
 *.deb
 
+# Sentinel scan artifacts (per-session, regenerated)
+sentinel-findings.md
+sentinel-findings.jsonl
+STUCK_FAILURES.md
+STUCK_FAILURES.jsonl
+
 # Common
 .env
 *.log

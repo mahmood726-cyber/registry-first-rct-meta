@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "registry-first-rct-meta"
+version = "0.1.0"
+description = "Registry-first meta-analysis pipeline quantifying the evidence gap in cardiovascular systematic reviews."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+dependencies = [
+    "numpy",
+    "pandas",
+    "requests",
+    "python-dateutil",
+    "defusedxml",
+    "rapidfuzz",
+    "tqdm",
+]
+
+[project.optional-dependencies]
+yaml = ["PyYAML"]
+test = ["pytest"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"

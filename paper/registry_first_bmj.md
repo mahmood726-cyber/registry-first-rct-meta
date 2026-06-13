@@ -133,8 +133,8 @@ The author declares no competing interests.
 
 ## References
 
-1. Dwan K, et al. Systematic review of the empirical evidence of study publication bias and outcome reporting bias. PLoS ONE. 2008;3(8):e3081.
-2. Ross JS, et al. Publication of NIH funded trials registered in ClinicalTrials.gov. BMJ. 2012;344:d7292.
-3. DeVito NJ, et al. Compliance with legal requirement to report clinical trial results. Lancet. 2020;395(10221):361-369.
-4. Chan AW, et al. Empirical evidence for selective reporting of outcomes in randomized trials. JAMA. 2004;291(20):2457-2465.
-5. Page MJ, et al. The PRISMA 2020 statement. BMJ. 2021;372:n71.
+1. Dwan K, et al. Systematic review of the empirical evidence of study publication bias and outcome reporting bias. PLoS ONE. 2008;3(8):e3081. doi:10.1371/journal.pone.0003081. PMID:18769481.
+2. Ross JS, et al. Publication of NIH funded trials registered in ClinicalTrials.gov. BMJ. 2012;344:d7292. doi:10.1136/bmj.d7292. PMID:22214755.
+3. DeVito NJ, et al. Compliance with legal requirement to report clinical trial results on ClinicalTrials.gov: a cohort study. Lancet. 2020;395(10221):361-369. doi:10.1016/S0140-6736(19)33220-9. PMID:31958402.
+4. Chan AW, et al. Empirical evidence for selective reporting of outcomes in randomized trials. JAMA. 2004;291(20):2457-2465. doi:10.1001/jama.291.20.2457. PMID:15161896.
+5. Page MJ, et al. The PRISMA 2020 statement: an updated guideline for reporting systematic reviews. BMJ. 2021;372:n71. doi:10.1136/bmj.n71. PMID:33782057.
