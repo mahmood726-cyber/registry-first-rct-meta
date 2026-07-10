@@ -17,26 +17,38 @@ def _continuity_correct(
     n_c: float,
     cc: float = 0.5,
 ) -> tuple[float, float, float, float]:
+    """Return the four 2x2 cell counts (a, b, c, d) with a continuity correction.
+
+    a=events_t, b=non-events_t, c=events_c, d=non-events_c. When any cell is zero
+    the correction adds ``cc`` to ALL four cells (the standard symmetric correction),
+    so the non-event cells are corrected too. This avoids a divide-by-zero for the
+    log-OR when an arm has 100% (or 0%) events, and keeps OR/RR internally consistent.
+    """
     if any(v < 0 for v in (e_t, n_t, e_c, n_c)):
         raise ValueError("Negative cell values are invalid")
-    if e_t == 0 or e_c == 0 or e_t == n_t or e_c == n_c:
-        return e_t + cc, n_t + cc, e_c + cc, n_c + cc
-    return e_t, n_t, e_c, n_c
+    a = e_t
+    b = n_t - e_t
+    c = e_c
+    d = n_c - e_c
+    if a == 0 or b == 0 or c == 0 or d == 0:
+        return a + cc, b + cc, c + cc, d + cc
+    return a, b, c, d
 
 
 def _study_log_effect(e_t: float, n_t: float, e_c: float, n_c: float, measure: str = "RR") -> tuple[float, float]:
-    e_t, n_t, e_c, n_c = _continuity_correct(e_t, n_t, e_c, n_c)
-    non_t = n_t - e_t
-    non_c = n_c - e_c
+    # a=events_t, b=non-events_t, c=events_c, d=non-events_c (cell-level correction).
+    a, b, c, d = _continuity_correct(e_t, n_t, e_c, n_c)
+    n_t = a + b
+    n_c = c + d
 
     if measure.upper() == "RR":
-        risk_t = e_t / n_t
-        risk_c = e_c / n_c
+        risk_t = a / n_t
+        risk_c = c / n_c
         yi = math.log(risk_t / risk_c)
-        vi = 1.0 / e_t - 1.0 / n_t + 1.0 / e_c - 1.0 / n_c
+        vi = 1.0 / a - 1.0 / n_t + 1.0 / c - 1.0 / n_c
     elif measure.upper() == "OR":
-        yi = math.log((e_t / non_t) / (e_c / non_c))
-        vi = 1.0 / e_t + 1.0 / non_t + 1.0 / e_c + 1.0 / non_c
+        yi = math.log((a / b) / (c / d))
+        vi = 1.0 / a + 1.0 / b + 1.0 / c + 1.0 / d
     else:
         raise ValueError("measure must be RR or OR")
 

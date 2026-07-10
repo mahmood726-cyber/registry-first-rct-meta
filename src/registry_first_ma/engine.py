@@ -22,7 +22,6 @@ from .meta import meta_analyze_binary, meta_analyze_effect_measure_rows, mnar_se
 from .models import IncludedStudy, OutcomeRow, ReviewRecord, ReviewRunResult, TrialUniverseRecord
 from .normalize import dedupe_list, normalize_identifier_set, keyword_terms
 from .openalex import OpenAlexClient
-from .publication_pdf import extract_publication_effect_rows
 from .pubmed import PubMedClient
 from .transparency import build_transparency_profile
 from .unpaywall import UnpaywallClient
@@ -225,6 +224,16 @@ class RegistryFirstEngine:
         if not self.augment_unmatched_pdfs or not self.pdf_extractor_root:
             return []
         if not main_outcome_name or main_outcome_name == "unspecified_outcome":
+            return []
+
+        try:
+            from .publication_pdf import extract_publication_effect_rows
+        except ImportError as exc:
+            LOGGER.warning(
+                "augment_unmatched_pdfs requested but publication_pdf module is unavailable; "
+                "skipping PDF augmentation: %s",
+                exc,
+            )
             return []
 
         pdf_urls = self._oa_pdf_urls(trial_links)
